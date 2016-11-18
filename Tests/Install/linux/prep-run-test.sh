@@ -48,6 +48,13 @@ python install_cifar10.py
 
 # TODO actually do different device and syntax.
 
+if [ "\$TEST_DEVICE" = "gpu" ]; then
+  cd "$CNTK_DROP/Tutorials"
+  for f in *.ipynb; do
+    jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=1200 --output \$(basename \$f .ipynb)-out.ipynb \$f
+  done
+fi
+
 # CNTK.wiki example:
 cd "$CNTK_DROP/Tutorials/HelloWorld-LogisticRegression"
 cntk configFile=lr_bs.cntk deviceId=\$TEST_DEVICE_ID
