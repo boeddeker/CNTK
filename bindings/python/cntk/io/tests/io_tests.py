@@ -85,7 +85,7 @@ def test_image():
 
     rc = ReaderConfig(image, randomize=False, epoch_size=epoch_size)
 
-    assert rc['epochSize'] == epoch_size
+    assert rc['epochSize'].value == epoch_size
     assert rc['randomize'] == False
     assert len(rc['deserializers']) == 1
     d = rc['deserializers'][0]
