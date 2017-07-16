@@ -13,6 +13,7 @@
 %include <attribute.i>
 %include <std_shared_ptr.i>
 %include <pybuffer.i>
+%include <std_complex.i>
 %pybuffer_binary(const char* buffer, size_t length);
 
 %implicitconv CNTK::Variable;
@@ -1700,6 +1701,32 @@ namespace CNTK
             {
                  NDArrayView  tmp(NDShape(shape), (double*)PyArray_DATA(array), num_elements, DeviceDescriptor::CPUDevice(), readOnly);
                  view = new NDArrayView(DataType::Double, tmp.Shape(), device);
+                 view->CopyFrom(tmp);
+            }
+        }
+        else if (typecode == NPY_CFLOAT)
+        {
+            if (borrow)
+            {
+                 view = new NDArrayView(NDShape(shape), (std::complex<float>*)PyArray_DATA(array), num_elements, DeviceDescriptor::CPUDevice(), readOnly);
+            }
+            else
+            {
+                 NDArrayView  tmp(NDShape(shape), (std::complex<float>*)PyArray_DATA(array), num_elements, DeviceDescriptor::CPUDevice(), readOnly);
+                 view = new NDArrayView(DataType::ComplexFloat, tmp.Shape(), device);
+                 view->CopyFrom(tmp);
+            }
+        }
+        else if (typecode == NPY_CDOUBLE)
+        {
+            if (borrow)
+            {
+                 view = new NDArrayView(NDShape(shape), (std::complex<double>*)PyArray_DATA(array), num_elements, DeviceDescriptor::CPUDevice(), readOnly);
+            }
+            else
+            {
+                 NDArrayView  tmp(NDShape(shape), (std::complex<double>*)PyArray_DATA(array), num_elements, DeviceDescriptor::CPUDevice(), readOnly);
+                 view = new NDArrayView(DataType::ComplexDouble, tmp.Shape(), device);
                  view->CopyFrom(tmp);
             }
         }

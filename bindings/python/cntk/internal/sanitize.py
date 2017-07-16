@@ -44,6 +44,22 @@ def _as_tuple(x):
     return tuple(x)
 
 
+def _as_tuple_of_int(x):
+    '''
+    Convert an argument to a tuple.
+
+    Args:
+        x: if scalar, it returns ``(int(x),)``. If iterable, it converts it to
+        tuple with ints.
+
+    Returns:
+        Tuple of ``x``.
+    '''
+    if np.isscalar(x):
+        x = (int(x),)
+    return tuple(map(int, x))
+
+
 def sanitize_precision(precision):
     '''
     Converts precision to NumPy precision
@@ -59,6 +75,10 @@ def sanitize_precision(precision):
         return np.float32
     elif precision in [cntk_py.DataType_Double, 'double', 'float64', np.float64]:
         return np.float64
+    elif precision in [cntk_py.DataType_ComplexFloat, 'complex64', np.complex64]:
+        return np.complex64
+    elif precision in [cntk_py.DataType_ComplexDouble, 'complex128', np.complex128]:
+        return np.complex128
     elif precision in [cntk_py.DataType_Unknown]:
         return None
     else:
@@ -69,7 +89,7 @@ def sanitize_shape(shape):
     """
     If shape is scalar, it creates a tuple out of it.
     """
-    return _as_tuple(shape)
+    return _as_tuple_of_int(shape)
 
 
 def sanitize_input(arg, fallback_dtype=np.float32, reshape=None):
@@ -457,6 +477,12 @@ def sanitize_dtype_numpy(dtype):
             is_str and dtype in ('double', 'float64'):
         # The Python type 'float' is a np.float64
         return np.float64
+    elif is_type and dtype in (np.complex64,) or \
+            is_str and dtype in ('complex64',):
+        return np.complex64
+    elif is_type and dtype in (np.complex128,) or \
+            is_str and dtype in ('complex128',):
+        return np.complex128
     else:
         raise ValueError('data type "%s" is not supported' % dtype)
 
@@ -472,6 +498,10 @@ def sanitize_dtype_cntk(dtype):
         return cntk_py.DataType_Float
     elif dtype == np.float64:
         return cntk_py.DataType_Double
+    if dtype == np.complex64:
+        return cntk_py.DataType_ComplexFloat
+    elif dtype == np.complex128:
+        return cntk_py.DataType_ComplexDouble
     elif dtype == object:
         return cntk_py.DataType_Unknown
     else:
