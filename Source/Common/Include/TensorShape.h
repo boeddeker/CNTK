@@ -133,6 +133,23 @@ public:
         m_data[m_size] = (T)defaultUnusedValue; // make this easier to parse in the debugger
 #endif
     }
+    void insert(size_t position, const T& val)
+    {
+        // Index: [0, 1, 2]
+        // Value: [2, 3, 4]
+        // call insert with (2, 5)
+        // Index: [0, 1, 2, 3]
+        // Value: [2, 3, 5, 4]
+        if (m_size >= capacity())
+            LogicError("SmallVector: insert at position %d not possible this would exceeded capacity of %d", (int) position, (int) capacity());
+
+        m_size++;
+        // ToDo: Is the upperbound in the for loop correct?
+        for (size_t i = m_size; i > position; i--){
+            m_data[i] = m_data[i-1];
+        }
+        m_data[position] = val;
+    }
     void resize(size_t sz, const T& val)
     {
         if (sz < m_size)
@@ -202,13 +219,35 @@ public:
     T operator[](size_t i) const
     {
         if (i >= size())
-            LogicError("SmallVector: index overflow");
+            LogicError("SmallVector: index (%d) overflow. Max index: %d", (int) i, (int) m_size);
+        return m_data[i];
+    }
+    T operator[](int i) const
+    {
+        if (i >= size())
+            LogicError("SmallVector: index (%d) overflow. Max index: %d", (int) i, (int) m_size);
+        if (i < 0)
+            LogicError("SmallVector: negative index (%d) not supported. Max index: %d", (int) i, (int) m_size);
+        return m_data[i];
+    }
+    T& operator[](int i)
+    {
+        if (i >= size())
+            LogicError("SmallVector: index (%d) overflow. Max index: %d", (int) i, (int) m_size);
+        if (i < 0)
+            LogicError("SmallVector: negative index (%d) not supported. Max index: %d", (int) i, (int) m_size);
         return m_data[i];
     }
     T& operator[](size_t i)
     {
         if (i >= size())
-            LogicError("SmallVector: index overflow");
+            LogicError("SmallVector: index (%d) overflow. Max index: %d", (int) i, (int) m_size);
+        return m_data[i];
+    }
+    T& at(size_t i)
+    {
+        if (i >= size())
+            LogicError("SmallVector: index (%d) overflow. Max index: %d", (int) i, (int) m_size);
         return m_data[i];
     }
     const T* begin() const
@@ -390,7 +429,8 @@ public:
         {
             ptrdiff_t stride = k > 0 ? m_strides[k - 1] * (ptrdiff_t) m_dims[k - 1] : 1;
             if (m_strides[k] != stride)
-                LogicError("TensorShape: A dense TensorShape expected. Dimension %d is not.", (int) k);
+                LogicError("TensorShape: A dense TensorShape expected. Dimension %d with stride %d is not. Expected stride %d. This: %s",
+                           (int) k, (int) m_strides[k], (int) stride, repr().c_str());
         }
     }
 
@@ -560,6 +600,8 @@ public:
     }
     TensorShape& DropDimsInPlace(const SmallVector<bool>& toDrop) // remove dimension
     {
+        // Bug: this function accepts a int as toDrop and do then nothing
+
         // this deletes a dimension while retaining strides
         // This implies a slice to [0] for this dimension.
         size_t j = 0;
@@ -582,6 +624,13 @@ public:
         }
         m_dims.resize(j);
         m_strides.resize(j);
+        return *this;
+    }
+    TensorShape& DropDimInPlace(const int dropIndex)
+    {
+        SmallVector<bool> toDrop(size(), false);
+        toDrop[dropIndex] = true;
+        this->DropDimsInPlace(toDrop);
         return *this;
     }
     TensorShape DropDims(const SmallVector<bool>& toDrop) const
@@ -640,13 +689,27 @@ public:
     {
         return TensorShape(*this).AppendInPlace(rank, newDim);
     }
+    TensorShape& InsertInPlace(size_t position, size_t newDim) // insert one new dimension at position 'rank'
+    {
+        // ToDo: is this coparrison correct?
+        if (position > GetRank()) // can't drop
+            LogicError("InsertInPlace: position (%d) cannot be bigger than tensor shape's ndim (%d). newDim: %d", (int)position, (int)GetRank(), (int) newDim);
+        if (newDim != 1) // can't drop
+            LogicError("InsertInPlace: newDim (%d) currently only singleton dims can be inserted. tensor shape's ndim (%d). position: %d", (int)newDim, (int)GetRank(), (int)position);
+
+        m_strides.insert(position, 0);
+        m_dims.insert(position, newDim);
+        // m_allocation *= newDim;
+        return *this;
+    }
     // narrow a dimension k to given bounds [begin, end), done in-place
     TensorShape& NarrowTo(size_t k, size_t begin, size_t end)
     {
         if (k >= size())
             LogicError("NarrowTo: Index out of bounds.");
+        // ToDo: is including "[..., ...]" end correct? Or "[..., ...)"
         if (end <= begin || end > m_dims[k])
-            LogicError("NarrowTo: Invalid bounds parameter, dimensions must be at least one.");
+            LogicError("NarrowTo: Invalid bounds parameter, dimensions must be at least one. [%d, %d] has to be in [0, %d]", (int) begin, (int) end, (int) m_dims[k]);
         m_offset += m_strides[k] * begin;
         m_dims[k] = end - begin;
         return *this;
@@ -763,6 +826,34 @@ public:
     {
         std::string s = this->operator std::string(); 
         return msra::strfun::utf16(s);
+    }
+
+    std::string repr() const
+    {
+        std::ostringstream os;
+        os << "TensorShape(shape=(";
+        bool first = true;
+        for (auto i : GetDims()){
+            if (first){
+                first = false;
+                os << i;
+            } else {
+                os << ", " << i;
+            }
+        }
+        os << "), strides=(";
+        first = true;
+        for (auto i : GetStrides()){
+            if (first){
+                first = false;
+                os << i;
+            } else {
+                os << ", " << i;
+            }
+        }
+        os << "), offset=" << GetOffset() << ", allocation=" << GetAllocation() << ")";
+        std::string str =  os.str();
+        return str;
     }
 
 private:
