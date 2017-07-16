@@ -7,7 +7,7 @@
 Utilities to specify device on which CNTK computation can be executed. 
 """
 from enum import Enum, unique
-from . import cntk_py
+from cntk import cntk_py
 from cntk.internal import typemap
 
 
