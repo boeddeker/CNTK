@@ -151,6 +151,34 @@ namespace CNTK
         GetWritableMatrix<double>()->SetValue(value);
     }
 
+//    void NDArrayView::SetValue(std::complex<float> value)
+//    {
+//        if (GetDataType() != DataType::ComplexFloat)
+//            // ToDo: add wrong type to error msg
+//            LogicError("NDArrayView::SetValue: Wrong type.");
+//        else
+//        {
+//            if (IsSparse())
+//                LogicError("NDArrayView::SetValue: Setting a NDArrayView contents to a scalar is only allowed for objects with dense storage format.");
+//
+//            GetWritableMatrix<std::complex<float>>()->SetValue(value);
+//        }
+//    }
+
+//    void NDArrayView::SetValue(std::complex<double> value)
+//    {
+//        if (GetDataType() != DataType::ComplexDouble)
+//            // ToDo: add wrong type to error msg
+//            LogicError("NDArrayView::SetValue: Wrong type.");
+//        else
+//        {
+//            if (IsSparse())
+//                LogicError("NDArrayView::SetValue: Setting a NDArrayView contents to a scalar is only allowed for objects with dense storage format.");
+//
+//            GetWritableMatrix<std::complex<double>>()->SetValue(value);
+//        }
+//    }
+
     template <typename ElementType>
     /*static*/ std::shared_ptr<Matrix<ElementType>> NDArrayView::GetMatrixImpl(const TensorView<ElementType>* tensorView, size_t rowColSplitPoint)
     {

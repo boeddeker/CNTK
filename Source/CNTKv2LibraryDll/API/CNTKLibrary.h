@@ -22,6 +22,7 @@
 #include <mutex>
 #include <future>
 #include <cstddef>
+#include <complex>
 
 #ifdef SWIG
 #define final
@@ -51,6 +52,8 @@ namespace CNTK
         Unknown = 0,
         Float = 1,
         Double = 2,
+        ComplexFloat = 3,
+        ComplexDouble = 4,
 
         /* TODO:
         Bit,
@@ -79,6 +82,10 @@ namespace CNTK
             return DataType::Float;
         else if (std::is_same<ElementType, double>())
             return DataType::Double;
+        else if (std::is_same<ElementType, std::complex<float>>())
+            return DataType::ComplexFloat;
+        else if (std::is_same<ElementType, std::complex<double>>())
+            return DataType::ComplexDouble;
         else
             NOT_IMPLEMENTED;
     }
@@ -87,6 +94,10 @@ namespace CNTK
     {
         if (dataType == DataType::Float)
             return "Float";
+        else if (dataType == DataType::Double)
+            return "Double";
+        else if (dataType == DataType::Double)
+            return "Double";
         else if (dataType == DataType::Double)
             return "Double";
         else
@@ -99,6 +110,10 @@ namespace CNTK
             return sizeof(float);
         else if (dataType == DataType::Double)
             return sizeof(double);
+        else if (dataType == DataType::ComplexFloat)
+            return sizeof(std::complex<float>);
+        else if (dataType == DataType::ComplexDouble)
+            return sizeof(std::complex<double>);
         else
             LogicError("Unknown DataType.");
     }
@@ -661,6 +676,12 @@ namespace CNTK
             case DataType::Double:
                 SetValue(value);
                 break;
+//            case DataType::ComplexFloat:
+//                SetValue((std::complex<float>)value);
+//                break;
+//            case DataType::ComplexDouble:
+//                SetValue((std::complex<double>)value);
+//                break;
             default:
                 LogicError("Unsupported DataType %s.", DataTypeName(m_dataType));
                 break;
@@ -2717,6 +2738,14 @@ namespace CNTK
             {
                 CopyVariableValueToVector<double>(outputVariable, sequences);
             }
+//            else if (dataType == DataType::ComplexFloat)
+//            {
+//                CopyVariableValueToVector<std::complex<float>>(outputVariable, sequences);
+//            }
+//            else if (dataType == DataType::ComplexDouble)
+//            {
+//                CopyVariableValueToVector<std::complex<double>>(outputVariable, sequences);
+//            }
         }
 
         ///
