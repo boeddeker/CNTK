@@ -77,9 +77,8 @@ class NDArrayView(cntk_py.NDArrayView):
                             ' and not %s' % type(np_array))
 
         if not _is_c_contiguous(np_array):
-            warnings.warn('data is not C contiguous; rearrange your '
-                          'data/computation to avoid costly data conversions',
-                          RuntimeWarning)
+            # warnings.warn('data is not C contiguous; rearrange your '
+            #               'data/computation to avoid costly data conversions')
             np_array = np.ascontiguousarray(np_array)
             # You can not borrow a temporary array.
             borrow = False
@@ -87,7 +86,10 @@ class NDArrayView(cntk_py.NDArrayView):
         if device is None:
             device = use_default_device()
 
-        return cntk_py.NDArrayView(np_array, device, read_only, borrow)
+        ndarray_view = cntk_py.NDArrayView(np_array, device, read_only, borrow)
+        # if borrow:
+        ndarray_view._ndarray = np_array
+        return ndarray_view
 
     @staticmethod
     @typemap
@@ -135,10 +137,13 @@ class NDArrayView(cntk_py.NDArrayView):
         if csr_array_size != ndarrayview_size:
             raise ValueError('csr_matrix total size (%d) does not match the total size '
                              '(%d) of the NDArrayView shape' % (csr_array_size, ndarrayview_size))
- 
-        return cntk_py.NDArrayView(shape, csr_array.data,
+
+        ndarray_view = cntk_py.NDArrayView(shape, csr_array.data,
                                    csr_array.indptr, csr_array.indices, device,
                                    read_only, borrow)
+        if borrow:
+            ndarray_view._ndarray = csr_array
+        return ndarray_view
 
     @staticmethod
     @typemap
@@ -343,7 +348,7 @@ class Value(cntk_py.Value):
                 raise ValueError('could not convert sample data to '
                                     'NumPy array')
 
-        elif sample.dtype in (np.float32, np.float64):
+        elif sample.dtype in (np.float32, np.float64, np.complex64, np.complex128):
             if sample.dtype != var.dtype:
                 convert_to_var_dtype = True
 
@@ -355,6 +360,7 @@ class Value(cntk_py.Value):
                              'supported, you gave %s' % sample.dtype)
 
         if convert_to_var_dtype:
+            # assert False
             warnings.warn('your data is of type "%s", but your input '
                           'variable (uid "%s") expects "%s". Please convert '
                           'your data beforehand to speed up training.' %
