@@ -26,7 +26,7 @@ class _OptionsContextManager: # implement Python's 'with' protocol
         self.kwargs = kwargs
     # entering with block: link in a new default-options record at head
     def __enter__(self):
-        from .variables import Record
+        from cntk.variables import Record
         _OptionsContextManager._current_default_overrides = Record(_scope = self.scope, _outer = _OptionsContextManager._current_default_overrides, **self.kwargs) # insert new scope at head of link
         return self
     # exiting with block: restore previous remembered defaults
