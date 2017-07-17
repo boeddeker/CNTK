@@ -9,7 +9,29 @@ Tensor operations.
 
 
 import warnings
+import functools
+import numpy as np
 from scipy import sparse
+
+import cntk
+
+
+def _consecutive(data):
+    """
+    https://stackoverflow.com/a/7353335/5766934
+
+    >>> a = np.array([0, 47, 48, 49, 50, 97, 98, 99])
+    >>> _consecutive(a)
+    [[0], [47, 48, 49, 50], [97, 98, 99]]
+    >>> a = [4, 5, 6, 7, 8]
+    >>> _consecutive(a)
+    [[4, 5, 6, 7, 8]]
+    >>> type(_consecutive(a)[0][0])
+    <class 'int'>
+    """
+    assert len(data) > 0
+    return list(map(lambda x: list(map(int, x)), np.split(data, np.where(np.diff(data) != 1)[0] + 1)))
+
 
 class TensorOpsMixin(object):
     '''
@@ -19,31 +41,47 @@ class TensorOpsMixin(object):
 
     # operator overload for (+) where self is the left operand
     def __add__(self, other):
+        if other is 0 or other is 0.:
+            return self
         from . import ops
         return ops.plus(self, other)
 
     # operator overload for (+) where self is the right operand
     def __radd__(self, other):
+        if other is 0 or other is 0.:
+            return self
         from . import ops
         return ops.plus(other, self)
 
     # operator overload for (-) where self is the left operand
     def __sub__(self, other):
+        if other is 0 or other is 0.:
+            return self
         from . import ops
         return ops.minus(self, other)
 
     # operator overload for (-) where self is the right operand
     def __rsub__(self, other):
+        if other is 0 or other is 0.:
+            return -self
         from . import ops
         return ops.minus(other, self)
 
     # operator overload for (*) where self is the left operand
     def __mul__(self, other):
+        if other is 0 or other is 0.:
+            return 0
+        if other is 1 or other is 1.:
+            return self
         from . import ops
         return ops.element_times(self, other)
 
     # operator overload for (*) where self is the right operand
     def __rmul__(self, other):
+        if other is 0 or other is 0.:
+            return 0
+        if other is 1 or other is 1.:
+            return self
         from . import ops
         return ops.element_times(other, self)
 
@@ -91,65 +129,120 @@ class TensorOpsMixin(object):
     # __lt__, __le__, __gt__, __ge__, __and__, __rand__, __or__, __ror__,
 
     def __getitem__(self, arg):
-        '''
-        Slicing of a Variable. E.g. var[2:3] will translate into slice(var, axis=0, begin_index=2, end_index=3)
-        '''
-        from . import ops
-
-        # int or slice: normalize into a tuple of int or tuple of slice
-        if not isinstance(arg, tuple): 
+        """
+    
+        Costs:
+        None -> one reshape
+        int -> one reshape
+        slice -> shared slice
+        tuple of consecutive idx -> shared slice
+        tuple of non consecutive idx -> one slice per consecutive part and a splice
+    
+        """
+        # ToDo: shape check for int and tuple
+        if not isinstance(arg, tuple):
             arg = (arg,)
-        r = self
-        axis0 = 0
 
-        from cntk.default_options import get_global_option, get_default_override, default_override_or
+        # print(arg)
 
-        keras_mode_flag = get_global_option('align_axis', 0)
-        if keras_mode_flag == 1:
-            if (getattr(self, 'dynamic_axes') is not None and len(self.dynamic_axes) > 0):
-                axis0 = -get_default_override(None, axis_offset=default_override_or(len(self.dynamic_axes)))
+        axis = []
+        begin_index = []
+        end_index = []
+        cur_axis = -1
 
-        for axis, s in enumerate(arg):
-            if s is Ellipsis: # ellipsis means index relative to end after this point
-                axis0 = -len(arg)
-                continue
-            if isinstance(s, int): # int: normalize into a slice
-                s = slice(s, s+1)
+        count_ellipsis = sum([a is Ellipsis for a in arg])
 
-            if isinstance(s, slice):
-                if s.step is not None and s.step != 1:
-                    # TODO: This is not hard to implement in SliceNode.
-                    raise ValueError("slicing with a step other than 1 is "
-                                     "currently not supported")
-                # implement as a CNTK slice() operation
-                begin = s.start or 0
-                end   = s.stop  or 0
-                if begin != 0 or end != 0:
-                    r = ops.slice(r, axis=axis + axis0, begin_index=begin, end_index=end)
-            elif isinstance(s, (tuple, list)):
+        count_tuple = sum([isinstance(a, (tuple, list)) for a in arg])
+
+        if not count_ellipsis <= 1:
+            raise IndexError("an index can only have a single ellipsis ('...')")
+
+        if not count_tuple <= 1:
+            raise IndexError("Advance slicing is only partially supported, can only have a single tuple or list")
+
+        nones = sum([a is None for a in arg])
+
+        if len(arg) - nones - count_ellipsis > len(self.shape):
+            raise IndexError(len(arg), nones, count_ellipsis, len(self.shape))
+
+        reshapes = []
+        insert_axis = []
+
+        ndim = len(self.shape) + nones
+
+        for a in arg:
+            cur_axis += 1
+            #         print('a', a)
+            if a is Ellipsis:
+                cur_axis -= len(arg)
+            elif isinstance(a, slice):
+                #             print(a.start, a.step, a.stop)
+                if (a.start, a.step, a.stop) == (None, None, None):
+                    pass
+                else:
+                    axis.append(cur_axis)
+                    begin_index.append(a.start or 0)
+                    end_index.append(a.stop or 0)
+            elif isinstance(a, int):
+                axis.append(cur_axis)
+                begin_index.append(a)
+                end_index.append(a + 1)
+
+                reshapes.append(functools.partial(cntk.reshape, shape=tuple(), begin_axis=cur_axis % ndim,
+                                                  end_axis=cur_axis % ndim + 1))
+
+            elif a is None:
+                #             print(cur_axis)
+                # self = cntk.reshape(self, shape=(1,), begin_axis=cur_axis % ndim, end_axis=cur_axis % ndim)
+
+                insert_axis += [cur_axis % ndim]
+
+            elif isinstance(a, (tuple, list)):
                 # Select multiple elements from the same dimension. This is
                 # different from NumPy's advanced indexing, since we just go
                 # axis by axis from left to right and don't do any
                 # broadcasting.
 
-                slice_accum = []
-                for idx in s:
-                    if not isinstance(idx, int):
-                        raise IndexError(
-                              'indices have to be of type int and not "%s"' %
-                               type(idx))
-                    slice_accum.append(ops.slice(r, axis=axis,
-                                                 begin_index=idx,
-                                                 end_index=idx + 1))
-                if len(slice_accum) > 1:
-                    r = ops.splice(*slice_accum, axis=axis)
-                else:
-                    r = slice_accum[0]
-            else:
-                raise IndexError(
-                    'type "%s" is not supported as index' % type(s))
+                if not all(isinstance(idx, int) for idx in a):
+                    raise IndexError(
+                        'indices have to be of type int.'
+                        + str([isinstance(idx, int) for idx in a]))
 
-        return r
+                slice_accum = []
+
+                consecutive_idx_list = _consecutive(a)
+                if len(consecutive_idx_list) <= 1:
+                    axis.append(cur_axis)
+                    begin_index.append(consecutive_idx_list[0][0])
+                    end_index.append(consecutive_idx_list[0][-1] + 1)
+                else:
+                    for cons_indices in consecutive_idx_list:
+                        slice_accum.append(cntk.ops.slice(self, axis=cur_axis % ndim,
+                                                          begin_index=cons_indices[0],
+                                                          end_index=cons_indices[-1] + 1))
+                    self = cntk.ops.splice(*slice_accum, axis=cur_axis)
+            else:
+                raise ValueError(a)
+
+                #     print('axis', axis, type(axis), [type(i) for i in axis])
+                #     print('begin_index', begin_index, type(begin_index), [type(i) for i in begin_index])
+                #     print('end_index', end_index, type(end_index), [type(i) for i in end_index])
+
+        if len(insert_axis):
+            consecutive_idx_list = _consecutive(insert_axis)
+            for i in consecutive_idx_list:
+                self = cntk.reshape(self, shape=tuple((1,)*len(i)), begin_axis=i[0],
+                                    end_axis=i[0])
+
+        if len(axis) > 0:
+            self = cntk.ops.slice(self, axis=axis, begin_index=begin_index, end_index=end_index)
+
+        for r in reversed(reshapes):
+            self = r(self)
+
+        # assert len(reshapes) == 1, "Currently is only one np.newaxis/None allowed"
+
+        return self
 
 
 AVAILABLE_TENSOR_OPS = ['abs', 'add', 'div', 'getitem', 'matmul', 'mul',
