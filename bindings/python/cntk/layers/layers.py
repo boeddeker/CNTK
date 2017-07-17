@@ -1105,10 +1105,13 @@ def Dropout(dropout_rate=None,
             raise ValueError("Dropout: keep_prob must be in the interval [0,1)")
         dropout_rate = 1-keep_prob
 
-    @BlockFunction('Dropout', name)
-    def dropout_f(x):
-        return dropout(x, dropout_rate=dropout_rate, seed=seed)
-    return dropout_f
+    if dropout_rate != 0:
+        @BlockFunction('Dropout {}'.format(dropout_rate), name)
+        def dropout_f(x):
+            return dropout(x, dropout_rate=dropout_rate, seed=seed)
+        return dropout_f
+    else:
+        return lambda x: x
 
 
 def Activation(activation=default_override_or(identity), name=''):
