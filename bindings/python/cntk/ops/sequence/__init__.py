@@ -9,8 +9,8 @@ import numpy as np
 from cntk.internal import typemap, sanitize_input
 from cntk.internal.utils import get_data_type
 
-from ...axis import Axis
-from ...default_options import default_override_or
+from cntk.axis import Axis
+from cntk.default_options import default_override_or
 ##########################################################################
 # variable ops
 ##########################################################################
@@ -148,7 +148,7 @@ def future_value(x, initial_state=None, time_step=1, name=''):
     from cntk.cntk_py import future_value
 
     if initial_state is None:
-        initial_state = Constant.scalar(sanitize_dtype_cntk(np.float32), 0.0)
+        initial_state = Constant.scalar(sanitize_dtype_cntk(x.dtype), 0.0)
 
     x = sanitize_input(x)
     return future_value(x, initial_state, time_step, name)
@@ -247,7 +247,7 @@ def past_value(x, initial_state=None, time_step=1, name=''):
     from cntk.cntk_py import Constant, past_value
 
     if initial_state is None:
-        initial_state = Constant.scalar(sanitize_dtype_cntk(np.float32), 0.0)
+        initial_state = Constant.scalar(sanitize_dtype_cntk(x.dtype), 0.0)
     else:
         initial_state = sanitize_input(initial_state)
 
@@ -349,10 +349,34 @@ def slice(seq, begin_index, end_index, name=''):
 
     Todo:
         add an example
+        >>> import cntk
+        >>> x = cntk.sequence.input_variable(2)
+        >>> y = cntk.sequence.slice(x, 0, 10)  # slice the first 10
+        >>> z = cntk.sequence.slice(x, 10, 0)  # slice the remainings
+        >>> x0 = np.ones((30, 2))
+        >>> np.shape(y(x0))
+        (1, 10, 2)
+        >>> np.shape(z(x0))
+        (1, 20, 2)
+        >>> x0 = np.ones((5, 2))  # to small sequence
+        >>> np.shape(y(x0))  # the first slice is reduced
+        (1, 5, 2)
+        >>> # The second does not work
+        >>> np.shape(z(x0))  # doctest: +IGNORE_EXCEPTION_DETAIL
+        Traceback (most recent call last):
+        ...
+        RuntimeError: AddSequence: Sequences must be a least one frame long.
     '''
     from cntk.cntk_py import sequence_slice
+    import cntk
     seq = sanitize_input(seq, get_data_type(seq))
-    return sequence_slice(seq, begin_index, end_index, name)
+
+    @cntk.BlockFunction('SequenceSlice {}:{}'.format(begin_index, end_index),
+                        name)
+    def sequence_slice(seq):
+        return sequence_slice(seq, begin_index, end_index, name)
+    return sequence_slice(seq)
+    # return sequence_slice(seq, begin_index, end_index, name)
 
 
 @typemap
@@ -419,6 +443,7 @@ def where(condition, name=''):
     next repeat factor.
 
     Example:
+        >>> import cntk as C
         >>> x = C.sequence.input_variable(shape=(3,2))
         >>> z = C.greater(C.reduce_sum(x), 60)
         >>> # create one sequence of 4 tensors each with shape (3,2)
@@ -509,28 +534,22 @@ def scatter(seq, condition, new_sequence_axis_typeinfo=None, name=''):
     preserving their order.
 
     Example:
-        >>> x = C.sequence.input_variable(shape=(3,2))
+        >>> import cntk as C
+        >>> x = C.sequence.input_variable(shape=(2))
         >>> t = C.sequence.last(x)
         >>> b = C.sequence.is_first(x)
         >>> y = C.sequence.scatter(t, b)
         >>> # create one sequence of 4 tensors each with shape (3,2)
-        >>> x0 = np.reshape(np.arange(24.0,dtype=np.float32),(1,4,3,2))
+        >>> x0 = np.reshape(np.arange(8.0,dtype=np.float32),(1,4,2))
+        >>> t.eval({x:x0})
+        array([[ 6.,  7.]], dtype=float32)
+        >>> b.eval({x:x0})
+        [array([ 1.,  0.,  0.,  0.], dtype=float32)]
         >>> y.eval({x:x0})
-        [array([[[ 18.,  19.],
-                 [ 20.,  21.],
-                 [ 22.,  23.]],
-        <BLANKLINE>
-                [[  0.,   0.],
-                 [  0.,   0.],
-                 [  0.,   0.]],
-        <BLANKLINE>
-                [[  0.,   0.],
-                 [  0.,   0.],
-                 [  0.,   0.]],
-        <BLANKLINE>
-                [[  0.,   0.],
-                 [  0.,   0.],
-                 [  0.,   0.]]], dtype=float32)]
+        [array([[ 6.,  7.],
+               [ 0.,  0.],
+               [ 0.,  0.],
+               [ 0.,  0.]], dtype=float32)]
 
     Args:
         seq: the symbolic sequence from which elements will be copied in the
@@ -556,17 +575,26 @@ def scatter(seq, condition, new_sequence_axis_typeinfo=None, name=''):
 
 
 @typemap
-def broadcast_as(operand, broadcast_as_operand, name=''):
+def broadcast_as(operand, broadcast_as_operand, name='', dtype=None):
     '''
     Creates a sequence out of a non-sequence by endowing the ``operand``
     with dynamic axes of the same type as the ``broadcast_as_operand``
     and broadcasting the value of the ``operand`` along those dynamic axes.
 
     Example:
-        >>> x = C.sequence.input_variable(shape=(3,2))
+        >>> import cntk as C
+        >>> x = C.sequence.input_variable(shape=(3,2), name='x')
+        >>> print(x)
+        Input('x', [#, *], [3 x 2])
         >>> t = C.sequence.last(x)
+        >>> print(t)
+        Sequence::Slice(x: Sequence[Tensor[3,2]]) -> Tensor[3,2]
         >>> b = C.sequence.is_first(x)
+        >>> print(b)
+        Sequence::IsFirst(x: Sequence[Tensor[3,2]]) -> Sequence[np.float32]
         >>> y = C.sequence.broadcast_as(t, b)
+        >>> print(y)
+        Composite(x: Sequence[Tensor[3,2]]) -> Sequence[Tensor[3,2]]
         >>> # create one sequence of 4 tensors each with shape (3,2)
         >>> x0 = np.reshape(np.arange(24.0,dtype=np.float32),(1,4,3,2))
         >>> y.eval({x:x0})
@@ -585,7 +613,20 @@ def broadcast_as(operand, broadcast_as_operand, name=''):
                 [[ 18.,  19.],
                  [ 20.,  21.],
                  [ 22.,  23.]]], dtype=float32)]
-
+        >>> x = C.sequence.input_variable(shape=(2,), name='x')
+        >>> print(x)
+        Input('x', [#, *], [2])
+        >>> y = C.input_variable(shape=(), name='y')
+        >>> print(y)
+        Input('y', [#], [])
+        >>> z = C.sequence.broadcast_as(y, x)
+        >>> print(z)
+        SequenceBroadcastAs(y: np.float32, x: Sequence[Tensor[2]]) -> Sequence[np.float32]
+        >>> x0 = np.zeros((4, 3, 2))  # 4: minibatch axis
+        >>> y0 = np.zeros((4,))
+        >>> np.shape(z.eval({x: x0, y: y0}))
+        (4, 3)
+    
     Args:
         operand: the symbolic tensor whose value will be broadcast
         broadcast_as_operand: the symbolic tensor whose dynamic axes will
@@ -596,10 +637,24 @@ def broadcast_as(operand, broadcast_as_operand, name=''):
         :class:`~cntk.ops.functions.Function`
     '''
     from cntk.cntk_py import broadcast_as
-    operand = sanitize_input(operand, get_data_type(operand))
+    import cntk
+
+    operand = sanitize_input(
+        operand,
+        get_data_type(operand, broadcast_as_operand)
+        if dtype is None else dtype
+    )
     broadcast_as_operand = sanitize_input(
-        broadcast_as_operand, get_data_type(broadcast_as_operand))
-    return broadcast_as(operand, broadcast_as_operand, name)
+        broadcast_as_operand,
+        get_data_type(broadcast_as_operand)
+        if dtype is None else dtype
+    )
+
+    @cntk.BlockFunction('SequenceBroadcastAs', name)
+    def broadcast_as(operand, broadcast_as_operand):
+        return broadcast_as(operand, broadcast_as_operand, name)
+
+    return broadcast_as(operand, broadcast_as_operand)
 
 
 @typemap
@@ -608,6 +663,7 @@ def reduce_sum(seq, name=''):
     Computes the sum of the input sequence's elements across the sequence axis.
 
     Examples:
+        >>> import cntk as C
         >>> x = C.sequence.input_variable(shape=(3,2))
         >>> # create one sequence of 4 tensors each with shape (3,2)
         >>> x0 = np.reshape(np.arange(24.0,dtype=np.float32),(1,4,3,2))
@@ -616,6 +672,8 @@ def reduce_sum(seq, name=''):
         array([[[ 36.,  40.],
                  [ 44.,  48.],
                  [ 52.,  56.]]], dtype=float32)
+        >>> y = C.sequence.reduce_sum(x) + x
+        >>> y.eval({x:x0})
 
     Args:
         seq: sequence input tensor
@@ -625,8 +683,14 @@ def reduce_sum(seq, name=''):
         :class:`~cntk.ops.functions.Function`
     '''
     from cntk.cntk_py import sequence_reduce_sum
+    import cntk
     seq = sanitize_input(seq, get_data_type(seq))
-    return sequence_reduce_sum(seq, name)
+
+    @cntk.BlockFunction('SequenceSum', name)
+    def sequence_sum(seq):
+        return sequence_reduce_sum(seq, name)
+
+    return sequence_sum(seq)
 
 
 @typemap
