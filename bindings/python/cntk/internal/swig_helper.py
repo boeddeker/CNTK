@@ -7,8 +7,8 @@ from .. import cntk_py
 
 _typemap = None
 
-
 def map_if_possible(obj):
+
     global _typemap
     if _typemap is None:
         # We can do this only if cntk_py and the cntk classes are already
@@ -47,14 +47,13 @@ def map_if_possible(obj):
     # Some types like NumPy arrays don't let to set the __class__
     if obj.__class__ in _typemap:
         obj.__class__ = _typemap[obj.__class__]
-    else:
-        if isinstance(obj, (tuple, list, set)):
-            for o in obj:
-                map_if_possible(o)
-        elif isinstance(obj, dict):
-            for k, v in obj.items():
-                map_if_possible(k)
-                map_if_possible(v)
+    elif isinstance(obj, (tuple, list, set)):
+        for o in obj:
+            map_if_possible(o)
+    elif isinstance(obj, dict):
+        for k, v in obj.items():
+            map_if_possible(k)
+            map_if_possible(v)
 
 
 def typemap(f):
