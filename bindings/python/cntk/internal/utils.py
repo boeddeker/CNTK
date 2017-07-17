@@ -39,7 +39,7 @@ def get_data_type(*args):
                 cntk_dtypes.add(np.float64)
             elif cntk_py.DataType_Float == arg.get_data_type():
                 cntk_dtypes.add(np.float32)
-        elif isinstance(arg, np.ndarray):
+        elif isinstance(arg, (np.ndarray, np.inexact)):
             if arg.dtype not in (np.float32, np.float64):
                 raise ValueError(
                     'NumPy type "%s" is not supported' % arg.dtype)
@@ -213,6 +213,7 @@ def _to_cntk_dict_value(py_value):
 
     return DictionaryValue(py_value)
 
+
 def _py_dict_to_cntk_dict(py_dict):
     '''
     Recursively converts a Python dictionary into a CNTK Dictionary 
@@ -227,5 +228,8 @@ def _py_dict_to_cntk_dict(py_dict):
     '''
     res = Dictionary()
     for k, v in py_dict.items():
-        res[k] = _to_cntk_dict_value(v)
+        try:
+            res[k] = _to_cntk_dict_value(v)
+        except NotImplementedError as e:
+            raise ValueError(v) from e
     return res
