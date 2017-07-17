@@ -11,14 +11,14 @@ from __future__ import division
 from __future__ import print_function
 import numpy as np
 import numbers
-from . import sequence
-from .functions import CloneMethod, Function, BlockFunction, load_model, register_native_user_function, native_user_function
+from cntk.ops import sequence
+from cntk.ops.functions import CloneMethod, Function, BlockFunction, load_model, register_native_user_function, native_user_function
 from cntk.internal import sanitize_input, sanitize_shape, sanitize_axis, sanitize_dynamic_axes, sanitize_axis_list, typemap, sanitize_pooling_args, sanitize_convolution_args, sanitize_permutation
 from cntk.internal.utils import get_data_type
-from ..axis import Axis
-from .. import cntk_py
-from ..cntk_py import sentinel_value_for_auto_select_random_seed as SentinelValueForAutoSelectRandomSeed
-from ..default_options import get_default_override, default_override_or
+from cntk.axis import Axis
+from cntk import cntk_py
+from cntk.cntk_py import sentinel_value_for_auto_select_random_seed as SentinelValueForAutoSelectRandomSeed
+from cntk.default_options import get_default_override, default_override_or
 
 TIMES_NO_INFERRED_INPUT_RANK                            = cntk_py.TimesNoInferredInputRank
 TIMES_REDUCE_SEQUENCE_AXIS_WITHOUT_INFERRED_INPUT_RANK  = cntk_py.TimesReduceSequenceAxisWithoutInferredInputRank
@@ -1744,6 +1744,22 @@ def optimized_rnnstack(operand, weights, hidden_size, num_layers,
 # TODO: enable when it is exposed in c++
 
 
+def ravel(x, name=''):
+    """
+    Note: cntk does not support ravel about the sequence axis.
+        Therefore is ravel only defined as ravel about the static axis, 
+        including cntk.FreeDimension.
+
+    """
+    import cntk
+
+    @cntk.BlockFunction('Ravel', name)
+    def ravel(x):
+        return reshape(x, -1, name=name)
+
+    return ravel(x)
+
+
 @typemap
 def reshape(x, shape, begin_axis=None, end_axis=None, name=''):
     '''
@@ -1774,6 +1790,7 @@ def reshape(x, shape, begin_axis=None, end_axis=None, name=''):
     Returns:
         :class:`~cntk.ops.functions.Function`
     '''
+    import cntk
     from cntk.cntk_py import reshape
     x = sanitize_input(x)
     shape = sanitize_shape(shape)
@@ -1803,8 +1820,13 @@ def reshape(x, shape, begin_axis=None, end_axis=None, name=''):
     internal_reshape_begin_axis = sanitize_reshape_axis(end_axis)
     internal_reshape_end_axis = sanitize_reshape_axis(begin_axis)
 
-    return reshape(x, shape, internal_reshape_begin_axis, internal_reshape_end_axis, name)
+    # return reshape(x, shape, internal_reshape_begin_axis, internal_reshape_end_axis, name)
 
+    @cntk.BlockFunction('Reshape axis={}:{} shape={}'.format(begin_axis, end_axis, shape), name)
+    def reshape(x):
+        return reshape(x, shape, internal_reshape_begin_axis, internal_reshape_end_axis, name)
+
+    return reshape(x)
 
 @typemap
 def transpose(x, perm, name=''):
@@ -1863,50 +1885,138 @@ def slice(x, axis, begin_index, end_index, name=''):
     Slice the input along one or multiple axes.
 
     Example:
-        >>> # slice using input variable
-        >>> # create 2x3 matrix
-        >>> x1 = C.input_variable((2,3))
-        >>> # slice index 1 (second) at first axis
-        >>> C.slice(x1, 0, 1, 2).eval({x1: np.asarray([[[1,2,-3],
-        ...                                             [4, 5, 6]]],dtype=np.float32)})
-        array([[[ 4.,  5.,  6.]]], dtype=float32)
-        <BLANKLINE>
-        >>> # slice index 0 (first) at second axis
-        >>> C.slice(x1, 1, 0, 1).eval({x1: np.asarray([[[1,2,-3],
-        ...                                             [4, 5, 6]]],dtype=np.float32)})
-        array([[[ 1.],
-                [ 4.]]], dtype=float32)
-        >>> # slice along multiple axes
-        >>> C.slice(x1, [0,1], [1,0], [2,1]).eval({x1: np.asarray([[[1, 2, -3],
-        ...                                                         [4, 5, 6]]],dtype=np.float32)})
-        array([[[ 4.]]], dtype=float32)
-        <BLANKLINE>
-        >>> # slice using constant
-        >>> data = np.asarray([[1, 2, -3],
-        ...                    [4, 5,  6]], dtype=np.float32)
-        >>> x = C.constant(value=data)
+        >>> import cntk as C
+        # >>> # slice using input variable
+        # >>> # create 2x3 matrix
+        # >>> x1 = C.input_variable((2,3))
+        # >>> # slice index 1 (second) at first axis
+        # >>> C.slice(x1, 0, 1, 2).eval({x1: np.asarray([[[1,2,-3],
+        # ...                                             [4, 5, 6]]],dtype=np.float32)})
+        # array([[[ 4.,  5.,  6.]]], dtype=float32)
+        # >>> # slice index 0 (first) at second axis
+        # >>> C.slice(x1, 1, 0, 1).eval({x1: np.asarray([[[1,2,-3],
+        # ...                                             [4, 5, 6]]],dtype=np.float32)})
+        # array([[[ 1.],
+        #         [ 4.]]], dtype=float32)
+        # >>> # slice along multiple axes
+        # >>> C.slice(x1, [0,1], [1,0], [2,1]).eval({x1: np.asarray([[[1, 2, -3],
+        # ...                                                         [4, 5, 6]]],dtype=np.float32)})
+        # array([[[ 4.]]], dtype=float32)
+        # >>> # slice using constant
+        # >>> data = np.asarray([[1, 2, -3],
+        # ...                    [4, 5,  6]], dtype=np.float32)
+        # >>> x = C.constant(value=data)
+        # >>> C.slice(x, 0, 1, 2).eval()
+        # array([[ 4.,  5.,  6.]], dtype=float32)
+        # >>> C.slice(x, 1, 0, 1).eval()
+        # array([[ 1.],
+        #        [ 4.]], dtype=float32)
+        # >>> C.slice(x, [0,1], [1,0], [2,1]).eval()
+        # array([[ 4.]], dtype=float32)
+        # >>> # slice using the index overload
+        # >>> data = np.asarray([[1, 2, -3],
+        # ...                    [4, 5,  6]], dtype=np.float32)
+        # >>> x = C.constant(value=data)
+        # >>> x[0].eval()
+        # array([ 1.,  2., -3.], dtype=float32)
+        # >>> x[0, [1,2]].eval()
+        # array([ 2., -3.], dtype=float32)
+        # >>> x[1].eval()
+        # array([ 4.,  5.,  6.], dtype=float32)
+        # >>> x[:,:2].eval()
+        # array([[ 1.,  2.],
+        #        [ 4.,  5.]], dtype=float32)
+        >>> data = np.asarray([[1, 4], [2, 5], [-3, 6]], dtype=np.float32)
+        >>> data2 = np.asarray([1, 2, -3], dtype=np.float32)
+        >>> x = C.parameter(init=data)
+        >>> print(x)
+        Constant('Constant3', [], [3 x 2])
+        >>> print(C.slice(x, 0, 0, 1))
+        Slice 0:1 axis=0() -> ParameterTensor[1,2]
         >>> C.slice(x, 0, 1, 2).eval()
-        array([[ 4.,  5.,  6.]], dtype=float32)
-        >>> C.slice(x, 1, 0, 1).eval()
-        array([[ 1.],
-               [ 4.]], dtype=float32)
-        >>> C.slice(x, [0,1], [1,0], [2,1]).eval()
-        array([[ 4.]], dtype=float32)
+        array([[ 2.,  5.]], dtype=float32)
+        >>> print(C.slice(x, 0, 42, 42))
+        Slice 42:42 axis=0() -> ParameterTensor[1,3,2]
+        >>> C.slice(x, 0, 42, 42).eval().shape
+        (1, 3, 2)
+        >>> C.slice(x, 0, 42, 42).eval()
+        array([[[ 1.,  4.],
+                [ 2.,  5.],
+                [-3.,  6.]]], dtype=float32)
+        >>> data[None, ...]
+        array([[[ 1.,  4.],
+                [ 2.,  5.],
+                [-3.,  6.]]], dtype=float32)
+        >>> print(C.slice(x, 1, 42, 0))
+        Slice 42:0 axis=1() -> ParameterTensor[3,1,2]
+        >>> print(data[:, None, ...])
+        [[[ 1.  4.]]
         <BLANKLINE>
-        >>> # slice using the index overload
-        >>> data = np.asarray([[1, 2, -3],
-        ...                    [4, 5,  6]], dtype=np.float32)
+         [[ 2.  5.]]
+        <BLANKLINE>
+         [[-3.  6.]]]
+        >>> print(C.slice(x, 1, 42, 0).eval())
+        [[[ 1.  4.]]
+        <BLANKLINE>
+         [[ 2.  5.]]
+        <BLANKLINE>
+         [[-3.  6.]]]
+        >>> print(C.slice(x, 2, 42, 0))
+        Slice 42:0 axis=2() -> ParameterTensor[3,2,1]
+        >>> print(data[..., None])
+        [[[ 1.]
+          [ 4.]]
+        <BLANKLINE>
+         [[ 2.]
+          [ 5.]]
+        <BLANKLINE>
+         [[-3.]
+          [ 6.]]]
+        >>> print(C.slice(x, 2, 42, 0).eval())
+        [[[ 1.]
+          [ 4.]]
+        <BLANKLINE>
+         [[ 2.]
+          [ 5.]]
+        <BLANKLINE>
+         [[-3.]
+          [ 6.]]]
+        >>> print(C.slice(x, 0, 0, 42))
+        Slice 0:42 axis=0() -> ParameterTensor[2]
+        >>> print(data[0])
+        [ 1.  4.]
+        >>> C.slice(x, 0, 0, 42).eval()
+        array([ 1.,  4.], dtype=float32)
+        >>> x = C.input_variable(data.shape, needs_gradient=True)
+        >>> C.slice(x, 0, 0, 42).eval({x: data})
+        >>> C.slice(x, 0, 0, 42).grad({x: data})
+        array([ 1.,  4.], dtype=float32)
+        >>> data = np.asarray([[1, 4], [2, 5], [-3, 6]], dtype=np.float32)
         >>> x = C.constant(value=data)
-        >>> x[0].eval()
-        array([[ 1.,  2.,  -3.]], dtype=float32)
-        >>> x[0, [1,2]].eval()
-        array([[ 2.,  -3.]], dtype=float32)
-        <BLANKLINE>
-        >>> x[1].eval()
-        array([[ 4.,  5.,  6.]], dtype=float32)
-        >>> x[:,:2,:].eval()
-        array([[ 1.,  2.],
-               [ 4.,  5.]], dtype=float32)
+        >>> C.slice(x, 0, 0, 42).eval()
+        array([ 1.,  4.], dtype=float32)
+        >>> x = C.input_variable(data.shape, needs_gradient=True)
+        >>> C.slice(x, 1, 0, 42).eval({x: data})
+        Traceback (most recent call last):
+        ...
+        RuntimeError: TensorShape: A dense TensorShape expected. Dimension 1 with stride 6 is not. Expected stride 2. This: TensorShape(shape=(2, 1, 1), strides=(1, 6, 6), offset=0, allocation=6)
+        [CALL STACK]
+        [0x7f6d5deabe9b]                                                       + 0x146de9b
+        [0x7f6d5de73245]    Microsoft::MSR::CNTK::TensorShape::  VerifyIsDense  () const + 0x10b
+        [0x7f6d5de73aec]    Microsoft::MSR::CNTK::TensorShape::  PadRankInPlace  (unsigned long) + 0x2c
+        [0x7f6d5a902a3d]                                                       + 0xc23a3d
+        [0x7f6d5a90c003]    Microsoft::MSR::CNTK::TensorView<float>::  DoUnaryOpOf  (float,  Microsoft::MSR::CNTK::TensorView<float> const&,  float,  Microsoft::MSR::CNTK::ElementWiseOperator,  Microsoft::MSR::CNTK::ElementWiseOperator) + 0x107
+        [0x7f6d5debc7e1]    Microsoft::MSR::CNTK::TensorView<float>::  AssignCopyOf  (Microsoft::MSR::CNTK::TensorView<float> const&,  float) + 0x3b
+        [0x7f6d5de7fec2]    Microsoft::MSR::CNTK::SliceNode<float>::  ForwardProp  (Microsoft::MSR::CNTK::FrameRange const&) + 0x160
+        [0x7f6d5e33fbf7]    Microsoft::MSR::CNTK::ComputationNetwork::PARTraversalFlowControlNode::  ForwardProp  (std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase> const&,  Microsoft::MSR::CNTK::FrameRange const&) + 0xdd
+        [0x7f6d5e079abd]    void Microsoft::MSR::CNTK::ComputationNetwork::ForwardProp<std::vector<std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase>,std::allocator<std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase>>>>(std::vector<std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase>,std::allocator<std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase>>> const&)::{lambda(std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase> const&)#1}::  operator()  (std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase> const&) const + 0x57
+        [0x7f6d5e08a646]    std::_Function_handler<void (std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase> const&),void Microsoft::MSR::CNTK::ComputationNetwork::ForwardProp<std::vector<std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase>,std::allocator<std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase>>>>(std::vector<std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase>,std::allocator<std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase>>> const&)::{lambda(std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase> const&)#1}>::  _M_invoke  (std::_Any_data const&,  std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase> const&) + 0x37
+        [0x7f6d5ded8abb]    std::function<void (std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase> const&)>::  operator()  (std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase> const&) const + 0x49
+        [0x7f6d5e081849]    void Microsoft::MSR::CNTK::ComputationNetwork::  TravserseInSortedGlobalEvalOrder  <std::vector<std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase>,std::allocator<std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase>>>>(std::vector<std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase>,std::allocator<std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase>>> const&,  std::function<void (std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase> const&)> const&) + 0x37b
+        [0x7f6d5e079b86]    void Microsoft::MSR::CNTK::ComputationNetwork::  ForwardProp  <std::vector<std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase>,std::allocator<std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase>>>>(std::vector<std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase>,std::allocator<std::shared_ptr<Microsoft::MSR::CNTK::ComputationNodeBase>>> const&) + 0x4c
+        [0x7f6d5e0631c4]    CNTK::CompositeFunction::  Forward  (std::unordered_map<CNTK::Variable,std::shared_ptr<CNTK::Value>,std::hash<CNTK::Variable>,std::equal_to<CNTK::Variable>,std::allocator<std::pair<CNTK::Variable const,std::shared_ptr<CNTK::Value>>>> const&,  std::unordered_map<CNTK::Variable,std::shared_ptr<CNTK::Value>,std::hash<CNTK::Variable>,std::equal_to<CNTK::Variable>,std::allocator<std::pair<CNTK::Variable const,std::shared_ptr<CNTK::Value>>>>&,  CNTK::DeviceDescriptor const&,  std::unordered_set<CNTK::Variable,std::hash<CNTK::Variable>,std::equal_to<CNTK::Variable>,std::allocator<CNTK::Variable>> const&,  std::unordered_set<CNTK::Variable,std::hash<CNTK::Variable>,std::equal_to<CNTK::Variable>,std::allocator<CNTK::Variable>> const&) + 0xda2
+        [0x7f6d5dff68c0]    CNTK::Function::  Forward  (std::unordered_map<CNTK::Variable,std::shared_ptr<CNTK::Value>,std::hash<CNTK::Variable>,std::equal_to<CNTK::Variable>,std::allocator<std::pair<CNTK::Variable const,std::shared_ptr<CNTK::Value>>>> const&,  std::unordered_map<CNTK::Variable,std::shared_ptr<CNTK::Value>,std::hash<CNTK::Variable>,std::equal_to<CNTK::Variable>,std::allocator<std::pair<CNTK::Variable const,std::shared_ptr<CNTK::Value>>>>&,  CNTK::DeviceDescriptor const&,  std::unordered_set<CNTK::Variable,std::hash<CNTK::Variable>,std::equal_to<CNTK::Variable>,std::allocator<CNTK::Variable>> const&,  std::unordered_set<CNTK::Variable,std::hash<CNTK::Variable>,std::equal_to<CNTK::Variable>,std::allocator<CNTK::Variable>> const&) + 0xd6
+    
 
     Args:
         x: input tensor
@@ -1923,11 +2033,17 @@ def slice(x, axis, begin_index, end_index, name=''):
         :class:`~cntk.ops.functions.Function`
     '''
     from cntk.cntk_py import slice
+    import cntk
     x = sanitize_input(x)
-    axis = sanitize_axis_list(axis)
-    begin_index = sanitize_shape(begin_index)
-    end_index = sanitize_shape(end_index)
-    return slice(x, axis, begin_index, end_index, name)
+
+    @cntk.BlockFunction('Slice {}:{} axis={}'.format(begin_index, end_index, axis), name)
+    def slice(x):
+        begin_index_ = sanitize_shape(begin_index)
+        end_index_ = sanitize_shape(end_index)
+        axis_ = sanitize_axis_list(axis)
+        return slice(x, axis_, begin_index_, end_index_, name)
+
+    return slice(x)
 
 # TODO: enable when it is exposed in c++
 
@@ -2093,7 +2209,7 @@ def reduce_sum(x, axis=None, name=''):
         4.5
         >>> (np.sum(x1)+np.sum(x2))/(x1.size+x2.size)
         4.5
-        >>> # reduce over batch axis
+        >>> # reduce over batch axis;
         >>> xv = C.input_variable((2,2))
         >>> xd = np.arange(8,dtype=np.float32).reshape(2,2,2)
         >>> C.reduce_sum(xv,axis=C.Axis.default_batch_axis()).eval({xv:xd})
@@ -2109,9 +2225,15 @@ def reduce_sum(x, axis=None, name=''):
         :class:`~cntk.ops.functions.Function`
     '''
     from cntk.cntk_py import reduce_sum
+    import cntk
     x = sanitize_input(x)
-    axis = sanitize_axis(axis)
-    return reduce_sum(x, axis, name)
+
+    @cntk.BlockFunction('Sum axis={}'.format(axis), name)
+    def sum(x):
+        axis_ = sanitize_axis(axis)
+        return reduce_sum(x, axis_, name)
+
+    return sum(x)
 
 
 @typemap
@@ -2175,10 +2297,15 @@ def reduce_mean(x, axis=None, name=''):
     Returns:
         :class:`~cntk.ops.functions.Function`
     '''
+    import cntk
     from cntk.cntk_py import reduce_mean
     x = sanitize_input(x)
-    axis = sanitize_axis(axis)
-    return reduce_mean(x, axis, name)
+
+    @cntk.BlockFunction('Mean axis={}'.format(axis), name)
+    def sum(x):
+        axis_ = sanitize_axis(axis)
+        return reduce_mean(x, axis_, name)
+    return sum(x)
 
 
 @typemap
@@ -2446,6 +2573,13 @@ def random_sample(
 
     Returns:
         :class:`~cntk.ops.functions.Function`
+
+    >>> import cntk
+    >>> x = cntk.input_variable(3)
+    >>> y = cntk.ops.random_sample(x, 1, False)
+    >>> z = cntk.input_variable(3)
+    >>> w = y(z)
+    >>> w.eval({x: np.array([[1., 1., 1.]]), z: np.array([[1., 2., 3.]])})
 
     '''
     from cntk.cntk_py import random_sample
