@@ -112,7 +112,23 @@ class Function(cntk_py.Function):
     def __init__(self, *args, **kwargs):
         if len(args) > 0 and hasattr(args[0], '__call__') and not isinstance(args[0], Function): # overload
             return
-        super(Function, self).__init__(*args, **kwargs)
+        # print('*[type(a) for a in args] =', *[type(a) for a in args])
+        try:
+            super(Function, self).__init__(*args, **kwargs)
+        except:
+            print('*'*100)
+            print(__file__)
+            print('*[type(a) for a in args] =', *[type(a) for a in args])
+            print('{k: type(v) for k, v in kwargs.items()} =', {k: type(v) for k, v in kwargs.items()})
+            print('type(self) =', type(self))
+            print('self.__class__ == Function =', self.__class__ == Function, isinstance(self, Function))
+            try:
+                print('*[type(a) for a in args[0]] =', *[type(a) for a in args[0]])
+            except Exception:
+                pass
+            print('*'*100)
+            raise
+
 
     # TODO: bring this back once we have a design for name-accessible .outputs etc.
     #class NamedOutput:
@@ -226,7 +242,7 @@ class Function(cntk_py.Function):
 
             # verify that we got the parameter order right
             out_arg_names = [arg.name for arg in out.signature]
-            assert out_arg_names == arg_names
+            assert out_arg_names == arg_names, (out_arg_names, arg_names)
 
             if len(out.signature) != len(args):
                 unfulfilled_args = set(out.signature) - set(args)
@@ -391,7 +407,7 @@ class Function(cntk_py.Function):
         # numeric: evaluate
         outputs = self.outputs
         _, output_map = self.forward(arg_map, outputs)
-        assert len(output_map) == len(outputs)
+        assert len(output_map) == len(outputs), (output_map, outputs)
         if len(output_map) > 1: # tuple-valued: return tuple
             return tuple(output_map[output] for output in outputs)
         else: # single value: return numpy array and that's it
@@ -889,10 +905,17 @@ class Function(cntk_py.Function):
         output_map = {v: None for v in outputs}
         wrt_map = {v: None for v in wrt}
 
-        if grad_root is None:
-            super(Function, self).gradients(in_var_map, wrt_map, output_map, device)
-        else:
-            super(Function, self).gradients(in_var_map, grad_root, wrt_map, output_map, device)
+        try:
+            if grad_root is None:
+                super(Function, self).gradients(in_var_map, wrt_map, output_map, device)
+            else:
+                super(Function, self).gradients(in_var_map, grad_root, wrt_map, output_map, device)
+        except Exception:
+            import cntk_helper
+            print(cntk_helper.HERE, repr(self))
+            print(cntk_helper.HERE, cntk.logging.plot(self))
+            raise
+
 
         if as_numpy:
             for k in output_map:
@@ -1515,9 +1538,9 @@ class Function(cntk_py.Function):
             return cntk_py.Function.load_from_buffer(model, device)
 
         if is_file:
-            return cntk_py.Function.load(model, device)
+            return cntk_py.Function.load(str(model), device)
 
-        raise ValueError('Cannot load a model that is neither a file nor a byte buffer.')
+        raise ValueError('Cannot load the model {} that is neither a file nor a byte buffer.'.format(model))
 
     @staticmethod
     def with_signature(*args, **kwargs):
