@@ -29,7 +29,7 @@ from . import logging
 from . import io
 from . import layers
 from . import misc
-from . import random
+from . import random_module as random
 
 from .sample_installer import install_samples
 
