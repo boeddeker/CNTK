@@ -75,6 +75,13 @@ def test_get_data_type():
     assert get_data_type(pa32, pl, n64) == np.float32
     assert get_data_type(pa64, pl, n64) == np.float64
 
+    assert get_data_type(np.float64(1)) == np.float64
+    assert get_data_type(np.float32(1)) == np.float32
+    assert get_data_type(np.int64(1)) == np.float32  # special case for cntk
+    assert get_data_type(1) == np.float32
+    assert get_data_type(1.0) == np.float32
+
+
 def test_sanitize_batch_sparse():
     batch = [csr([[1,0,2],[2,3,0]]),
              csr([5,0,1])]
@@ -149,6 +156,7 @@ def test_one_hot_skip():
                  [ 0.,  0.,  0.]]]
     assert np.allclose(b.eval({i:a}), expected)
 
+
 def test_sanitize_batch_contiguity():
     a1 = AA([[1,2],[3,4]])
     a2 = AA([[5,6],[7,8]])
@@ -163,3 +171,7 @@ def test_sanitize_batch_contiguity():
     b = sanitize_batch(var, batch)
     assert b.shape == (2,1,2,2)
 
+
+if __name__ == '__main__':
+    import pytest
+    pytest.main()
