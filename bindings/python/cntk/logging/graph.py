@@ -239,7 +239,8 @@ def plot(root, filename=None):
                     # TODO: Would be cool, if the user could pass a dictionary with overrides. But maybe for a later version.
                 else:
                     f_name = '\n' + node.name + '()' if node.name else ''
-                    cur_node = pydot.Node(node.uid, label='"' + node.op_name + f_name + '"',
+                    op_name = '\n'.join(node.op_name.split(' '))
+                    cur_node = pydot.Node(node.uid, label='"' + op_name + f_name + '"',
                                           fixedsize='true', height=1, width=1.3,
                                           penwidth=4 if node.op_name != 'Pass' and node.op_name != 'ParameterOrder' else 1)
                 dot_object.add_node(cur_node)
