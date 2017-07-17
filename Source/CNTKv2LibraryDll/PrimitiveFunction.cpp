@@ -265,6 +265,43 @@ namespace CNTK
         return outputDynamicAxes;
     }
 
+    // Functor to compare by the Mth element
+    template<int M, template<typename> class F = std::less>
+    struct TupleCompare
+    {
+        // https://stackoverflow.com/a/23030402/5766934
+        // ToDo: C++1y/C++14 allows lambdas to do this.
+        template<typename T>
+        bool operator()(T const &t1, T const &t2)
+        {
+            return F<typename std::tuple_element<M, T>::type>()(std::get<M>(t1), std::get<M>(t2));
+        }
+    };
+
+    template<typename T>
+    std::ostream &operator <<(std::ostream &os, const std::vector<T> &v) {
+        // https://stackoverflow.com/a/10501402/5766934
+        using namespace std;
+        copy(v.begin(), v.end(), ostream_iterator<T>(os, "\n"));
+        return os;
+    }
+
+    template<typename T>
+    std::ostream &operator <<(std::ostream &os, const SmallVector<T> &v) {
+        // https://stackoverflow.com/a/10501402/5766934
+        using namespace std;
+        copy(v.begin(), v.end(), ostream_iterator<T>(os, "\n"));
+        return os;
+    }
+
+    std::ostream &operator <<(std::ostream &os, const Axis &v) {
+        // https://stackoverflow.com/a/10501402/5766934
+//        using namespace std;
+//        copy(v.begin(), v.end(), ostream_iterator<T>(os, "\n"));
+        os << "Axis(" << v.Name().c_str() << ", " << v.StaticAxisIndex() << ")" << std::endl;
+        return os;
+    }
+
     void PrimitiveFunction::InferOutputs(std::vector<Variable>& outputs)
     {
         if (m_op == PrimitiveOpType::Combine)
@@ -482,7 +519,13 @@ namespace CNTK
                             {
                                 auto &axisDictionary = m_attributes[PrimitiveFunction::AttributeNameAxisVec].Value<std::vector<DictionaryValue>>();
                                 for (auto& value : axisDictionary)
-                                    axis.push_back(NormalizeStaticAxis(value.Value<Axis>(), m_inputs[0].Shape())); 
+                                    if (value.Value<Axis>().StaticAxisIndex() != -1 - m_inputs[0].Shape().Rank())
+                                        axis.push_back(NormalizeStaticAxis(value.Value<Axis>(), m_inputs[0].Shape()));
+                                    else{
+                                        // ToDo: Remove Hack. Hack nessesary for special insert case
+                                        axis.push_back(Axis(-1));
+                                    }
+
 
                                 beginIndex = AsVector<int>(m_attributes[PrimitiveFunction::AttributeNameBeginIndexVec].Value<std::vector<DictionaryValue>>());
                                 endIndex = AsVector<int>(m_attributes[PrimitiveFunction::AttributeNameEndIndexVec].Value<std::vector<DictionaryValue>>());
@@ -491,7 +534,12 @@ namespace CNTK
                                 m_attributes.Contains(PrimitiveFunction::AttributeNameBeginIndex) &&
                                 m_attributes.Contains(PrimitiveFunction::AttributeNameEndIndex))
                             {
-                                axis.push_back(NormalizeStaticAxis(m_attributes[PrimitiveFunction::AttributeNameAxis].Value<Axis>(), m_inputs[0].Shape()));
+                                if (m_attributes[PrimitiveFunction::AttributeNameAxis].Value<Axis>().StaticAxisIndex() != -1 - m_inputs[0].Shape().Rank())
+                                    axis.push_back(NormalizeStaticAxis(m_attributes[PrimitiveFunction::AttributeNameAxis].Value<Axis>(), m_inputs[0].Shape()));
+                                else {
+                                    // ToDo: Remove Hack. Hack "+1" nessesary for special case end axis
+                                    axis.push_back(Axis(-1));
+                                }
                                 beginIndex.push_back(m_attributes[PrimitiveFunction::AttributeNameBeginIndex].Value<int>());
                                 endIndex.push_back(m_attributes[PrimitiveFunction::AttributeNameEndIndex].Value<int>());
                             }
@@ -501,34 +549,118 @@ namespace CNTK
                             }
 
                             auto outputTensorShape = AsTensorShape(m_inputs[0].Shape());
+
+//                            std::vector<std::tuple<size_t, bool>> drop_insert_axis;
+                            // ToDo: Determince the maximum number of Axis. It is not axis.size()
+                            // +1 because insert insertes before the axis and for the last it has to be after
+                            // ToDo: is m_inputs[0].Shape().Rank()+1 the corect number?
+                            // ToDo: Bug: Slice only supports 11 ndim instead of 12 (cntk default)
+                            SmallVector<int> insert_drop(m_inputs[0].Shape().Rank()+1, 0);  // ToDo: Remove 12
+                            // drop_insert_axis: axis, {insert: True, drop: False}
+//                            std::cout << "Debug Slice insert_drop values: " << insert_drop << std::endl;
+//                            std::cout << "Debug Slice axis: " << axis << std::endl;
+
                             for (auto i = 0; i < axis.size(); i++)
                             {
+//                                std::cout << __FILE__ << __LINE__ << std::endl;
                                 auto& ax = axis[i];
+//                                std::cout << __FILE__ << __LINE__ << std::endl;
                                 if (!ax.IsStaticAxis())
                                     LogicError("Function '%S': Built-in Slice operation currently does not support slicing along dynamic axis.", AsString().c_str());
-                                VerifyStaticAxis(ax, m_inputs[0].Shape());
+                                // ToDo: Cleaner VerifyStaticAxis that allows insert axis instead of skip
+//                                std::cout << __FILE__ << __LINE__ << std::endl;
+                                if (beginIndex[i] != 42)
+                                    VerifyStaticAxis(ax, m_inputs[0].Shape());
+//                                std::cout << __FILE__ << __LINE__ << std::endl;
 
-                                size_t sliceAxisDim = m_inputs[0].Shape()[ax.StaticAxisIndex()];
+                                // ToDo: Remove this Hack (comparison with -1) and reorder the if statements
+                                size_t sliceAxisDim;
+//                                std::cout << __FILE__ << __LINE__ << " " << ax.StaticAxisIndex() << std::endl;
+                                if (ax.StaticAxisIndex() != -1)
+                                    sliceAxisDim = m_inputs[0].Shape()[ax.StaticAxisIndex()];
+                                else
+                                    sliceAxisDim = 1;
+                                // ToDo: is int the correct type for realBeginIndex? (not size_t)
+//                                std::cout << __FILE__ << __LINE__ << std::endl;
                                 int realBeginIndex = (beginIndex[i] >= 0) ? beginIndex[i] : beginIndex[i] + sliceAxisDim;
                                 int realEndIndex = (endIndex[i] > 0) ? endIndex[i] : endIndex[i] + sliceAxisDim;
+//                                std::cout << __FILE__ << __LINE__ << std::endl;
                                 if ((sliceAxisDim < realEndIndex) || (realEndIndex < realBeginIndex) || (realBeginIndex < 0))
-                                    RuntimeError("Function '%S': Slice operation index range [%d,%d), interpreted as [%d,%d), is invalid for input '%S' shape '%S'.",
-                                        AsString().c_str(),
-                                        beginIndex[i],
-                                        endIndex[i],
-                                        realBeginIndex,
-                                        realEndIndex,
-                                        m_inputs[0].AsString().c_str(),
-                                        m_inputs[0].Shape().AsString().c_str());
-                                // propagate as much as we can
-                                // Note: If the sliceAxisDim is a free dimension and the slice size is relative to the sliceAxisDim then the 
-                                // corresponding outputDim is also a free dimension
-                                if ((((sliceAxisDim != NDShape::FreeDimension) && (sliceAxisDim != NDShape::InferredDimension)) || (((beginIndex[i] >= 0) && (endIndex[i] > 0)) || ((beginIndex[i] < 0) && (endIndex[i] <= 0)))) &&
-                                    ((ax.StaticAxisIndex() < (int)outputTensorShape.GetRank()) && (0 <= realBeginIndex) && (realBeginIndex <= realEndIndex) && (realEndIndex <= sliceAxisDim)))
-                                {
-                                    outputTensorShape.NarrowTo(ax.StaticAxisIndex(), realBeginIndex, realEndIndex);
+                                    // ToDo: replace 42 with sentinel for insert/drop index
+                                    if (realBeginIndex != 42 && realEndIndex != 42)
+                                        RuntimeError("Function '%S': Slice operation index range [%d,%d), interpreted as [%d,%d), is invalid for input '%S' shape '%S'.",
+                                            AsString().c_str(),
+                                            beginIndex[i],
+                                            endIndex[i],
+                                            realBeginIndex,
+                                            realEndIndex,
+                                            m_inputs[0].AsString().c_str(),
+                                            m_inputs[0].Shape().AsString().c_str());
+//                                std::cout << __FILE__ << __LINE__ << std::endl;
+                                if (realBeginIndex == 42){
+                                    // insert
+//                                    std::cout << "Debug Slice insert_drop insert_drop.at(ax.StaticAxisIndex() + 1): " << insert_drop.at(ax.StaticAxisIndex() + 1) << std::endl;
+                                    insert_drop.at(ax.StaticAxisIndex() + 1) += 1;
+//                                    std::cout << "Debug Slice insert_drop insert_drop.at(ax.StaticAxisIndex() + 1): " << insert_drop.at(ax.StaticAxisIndex() + 1) << std::endl;
+//                                    drop_insert_axis.push_back(std::make_tuple(ax.StaticAxisIndex() + 1, true));
+                                } else if (realEndIndex == 42){
+                                    // slice folloed from drop
+//                                    std::cout << "Debug Slice insert_drop insert_drop.at(ax.StaticAxisIndex()): " << insert_drop.at(ax.StaticAxisIndex()) << std::endl;
+                                    insert_drop.at(ax.StaticAxisIndex()) -= 1;
+//                                    std::cout << "Debug Slice insert_drop insert_drop.at(ax.StaticAxisIndex()): " << insert_drop.at(ax.StaticAxisIndex()) << std::endl;
+//                                    drop_insert_axis.push_back(std::make_tuple(ax.StaticAxisIndex(), false));
+                                    realEndIndex = realBeginIndex + 1;
                                 }
+//                                std::cout << __FILE__ << __LINE__ << std::endl;
+                                if (realBeginIndex != 42){
+                                    // propagate as much as we can
+                                    // Note: If the sliceAxisDim is a free dimension and the slice size is relative to the sliceAxisDim then the
+                                    // corresponding outputDim is also a free dimension
+                                    if ((((sliceAxisDim != NDShape::FreeDimension) && (sliceAxisDim != NDShape::InferredDimension)) || (((beginIndex[i] >= 0) && (endIndex[i] > 0)) || ((beginIndex[i] < 0) && (endIndex[i] <= 0)))) &&
+                                        ((ax.StaticAxisIndex() < (int)outputTensorShape.GetRank()) && (0 <= realBeginIndex) && (realBeginIndex <= realEndIndex) && (realEndIndex <= sliceAxisDim)))
+                                    {
+                                        outputTensorShape.NarrowTo(ax.StaticAxisIndex(), realBeginIndex, realEndIndex);
+                                    }
+                                }
+//                                std::cout << __FILE__ << __LINE__ << std::endl;
                             }
+//                            std::sort(begin(drop_insert_axis), end(drop_insert_axis), TupleCompare<0>());  // inplace
+//                            std::cout << "Debug Slice drop_insert_axis: " << std::endl;
+//                            for (auto e : drop_insert_axis){
+//                                std::cout << std::get<0>(e) << " " << std::get<1>(e) << std::endl;
+//                            }
+//                            for(auto it = insert_drop.rbegin(); it != insert_drop.rend(); ++it) {
+//                            std::cout << "for(auto ax_idx = insert_drop.size()-1; ax_idx >= 0; ax_idx--) {" << std::endl;
+                            for(int ax_idx = insert_drop.size()-1; ax_idx >= 0; ax_idx--) {  // Note: int is nessesary -1 => break
+//                                std::cout << "Debug Slice ax_idx: " << ax_idx << std::endl;
+//                                std::cout << "Debug Slice insert_drop.at(ax_idx): " << insert_drop.at(ax_idx) << std::endl;
+                                if (insert_drop.at(ax_idx) > 0){
+//                                    std::cout << "Debug Slice insert_drop: insert " << insert_drop[ax_idx] << std::endl;
+                                    for (int notImportant = 0; notImportant < insert_drop[ax_idx]; notImportant++){
+                                        outputTensorShape.InsertInPlace(ax_idx, 1);
+                                    }
+                                } else if (insert_drop.at(ax_idx) < 0){
+//                                    std::cout << "Debug Slice insert_drop: drop " << insert_drop[ax_idx] << std::endl;
+                                    // ToDo: add a assert *it == 1
+                                    outputTensorShape.DropDimInPlace(ax_idx);
+                                } /*else { pass } */
+                            }
+//                            std::cout << "for(auto ax_idx = insert_drop.size()-1; ax_idx >= 0; ax_idx--) {}end" << std::endl;
+
+//                            for(auto it = drop_insert_axis.rbegin(); it != drop_insert_axis.rend(); ++it) {
+//                                // reverse iteration
+//                                // https://stackoverflow.com/a/276053/5766934
+//                                auto axis = std::get<0>(*it);
+//                                bool insert_True_drop_False = std::get<1>(*it);
+//
+//                                if (insert_True_drop_False){
+//                                    std::cout << "Debug Slice AppendInPlace: " << axis << std::endl;
+//                                    outputTensorShape.InsertInPlace(axis, 1);
+//                                } else {
+//                                    std::cout << "Debug Slice DropDimsInPlace: " << axis << std::endl;
+//                                    outputTensorShape.DropDimInPlace(axis);
+//                                }
+//                            }
                             outputShape = AsNDShape(outputTensorShape, /*allowNonFlattenableTensorShapes = */ true);
                             break;
                         }

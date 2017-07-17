@@ -5,6 +5,7 @@
 // ReshapingNodes.h -- collection of nodes that reshape or sub-sample matrices leading to layout changes
 //
 #pragma once
+#include <iostream>
 
 #include "Basics.h"
 #include "Matrix.h"
@@ -470,6 +471,19 @@ private:
 template class ReconcileDynamicAxisNode<float>;
 template class ReconcileDynamicAxisNode<double>;
 
+// Functor to compare by the Mth element
+template<int M, template<typename> class F = std::less>
+struct TupleCompare
+{
+    // https://stackoverflow.com/a/23030402/5766934
+    // ToDo: C++1y/C++14 allows lambdas to do this.
+    template<typename T>
+    bool operator()(T const &t1, T const &t2)
+    {
+        return F<typename std::tuple_element<M, T>::type>()(std::get<M>(t1), std::get<M>(t2));
+    }
+};
+
 // -----------------------------------------------------------------------
 // SliceNode (input)
 // This node extracts a slice of the first tensor dimension (row).
@@ -562,6 +576,8 @@ public:
     {
         if (idx >= (int)m_axis.size())
             InvalidArgument("Slice EndIndex call with invalid index (%d) >= axis size (%d)", idx, (int)m_axis.size());
+        if (m_axis[idx] < 0)  // special case insert at boarder
+            return 0;
         return m_endIndex[idx]   >  0 ? (size_t)m_endIndex[idx] : (size_t)(m_endIndex[idx] + InputRef(0).GetSampleLayout()[m_axis[idx] - 1]); 
     }
     std::vector<int> Axis() const { return m_axis; }
@@ -578,8 +594,39 @@ private:
     TensorShape GetInputSlice(size_t rank, const FrameRange & fr) const
     {
         auto inputSlice = InputRef(0).GetTensorSliceFor(rank, fr);    // input must be narrowed down
-        for (int i = 0; i < (int)m_axis.size(); i++)  
-            inputSlice.NarrowTo(Axis(i)-1, BeginIndex(i), EndIndex(i));
+        SmallVector<int> insert_drop(inputSlice.GetRank()+1, 0);
+        for (int i = 0; i < (int)m_axis.size(); i++)
+            if (BeginIndex(i) != 42 && EndIndex(i) != 42)
+                inputSlice.NarrowTo(Axis(i)-1, BeginIndex(i), EndIndex(i));
+            else if (BeginIndex(i) == 42){
+                // ToDo: remove this hack with m_axis[i] < 1
+                if (m_axis[i] < 1){
+                    insert_drop.at(0) += 1;
+                } else {
+                    insert_drop.at(m_axis[i]) += 1;
+                }
+            } else /* if (EndIndex(i) == 42)*/ {
+                inputSlice.NarrowTo(Axis(i)-1, BeginIndex(i), BeginIndex(i)+1);
+                insert_drop.at(m_axis[i] - 1) -= 1;
+            }
+
+        // ToDo: move this codeblock (insertDrop) to TensorShape
+        // ToDo: Should TensorShape also contain the inverse of insertDrop? Nessesary?
+//        std::cout << __FILE__ << __LINE__ << std::endl;
+        for(int ax_idx = insert_drop.size()-1; ax_idx >= 0; ax_idx--) {  // Note: int is nessesary -1 => break
+//            std::cout << "Debug Slice ax_idx: " << ax_idx << std::endl;
+//            std::cout << "Debug Slice insert_drop.at(ax_idx): " << insert_drop.at(ax_idx) << std::endl;
+            if (insert_drop.at(ax_idx) > 0){
+//                std::cout << "Debug Slice insert_drop: insert " << insert_drop[ax_idx] << std::endl;
+                for (int notImportant = 0; notImportant < insert_drop[ax_idx]; notImportant++){
+                    inputSlice.InsertInPlace(ax_idx, 1);
+                }
+            } else if (insert_drop.at(ax_idx) < 0){
+//                std::cout << "Debug Slice insert_drop: drop " << insert_drop[ax_idx] << std::endl;
+                // ToDo: add a assert *it == 1
+                inputSlice.DropDimInPlace(ax_idx);
+            } /*else { pass } */
+        }
         return inputSlice;
     }
 
@@ -587,10 +634,12 @@ public:
 
     virtual void /*ComputationNode::*/ ForwardProp(const FrameRange& fr) override
     {
+//        std::cout << __FILE__ << __LINE__ << std::endl;
         size_t rank = DetermineElementwiseTensorRank();
         auto output = ValueTensorFor(rank, fr);
         let   input = TensorView<ElemType>(InputRef(0).ValuePtr(), GetInputSlice(rank, fr.AllowBroadcast()));
         output.AssignCopyOf(input);
+//        std::cout << __FILE__ << __LINE__ << std::endl;
     }
 
     virtual void /*ComputationNode::*/ BackpropTo(const size_t /*inputIndex*/, const FrameRange& fr) override
@@ -606,23 +655,110 @@ public:
 
     virtual void /*ComputationNodeBase::*/ Validate(bool isFinalValidationPass) override
     {
+//        std::cout << __FILE__ << __LINE__ << std::endl;
         Base::Validate(isFinalValidationPass);
         InferMBLayoutFromInputsForStandardCase(isFinalValidationPass);
 
+        std::vector<std::tuple<size_t, bool>> drop_insert_axis;
+        // drop_insert_axis: axis, {insert: True, drop: False}
+
         auto sampleLayout = Input(0)->GetSampleLayout();
+        // +1 because insert insertes before the axis and for the last it has to be after
+        // ToDo: Bug: Slice only supports 11 ndim instead of 12 (cntk default)
+        SmallVector<int> insert_drop(sampleLayout.GetRank()+1, 0);
+//        std::cout << __FILE__ << __LINE__ << std::endl;
         for (int i = 0; i < (int)m_axis.size(); i++)
         {
-            if (m_axis[i] < 1 || (isFinalValidationPass && m_axis[i] > sampleLayout.GetRank()))
-                RuntimeError("%ls %ls operation: axis parameter %d (%d) must be in range 1..rank of input ([%s]).", NodeName().c_str(), OperationName().c_str(), i, m_axis[i], string(sampleLayout).c_str());
+//            std::cout << __FILE__ << __LINE__ << std::endl;
+            auto currBeginIndex = BeginIndex(i);
+//            std::cout << __FILE__ << __LINE__ << std::endl;
+            auto currEndIndex = EndIndex(i);
+//            std::cout << __FILE__ << __LINE__ << std::endl;
 
-            if (isFinalValidationPass && (sampleLayout[m_axis[i] - 1] < EndIndex(i) || EndIndex(i) < BeginIndex(i) || BeginIndex(i) < 0))
-                RuntimeError("%ls %ls operation: Index range [%d,%d), interpreted as [%d,%d), is invalid for input ([%s]).", NodeName().c_str(), OperationName().c_str(), m_beginIndex[i], m_endIndex[i], (int)BeginIndex(i), (int)EndIndex(i), string(sampleLayout).c_str());
+            if (m_axis[i] < 1){
+//                std::cout << __FILE__ << __LINE__ << std::endl;
+                if (currBeginIndex != 42){
+                    // ToDo improve expeption msg to contain special case
+                    RuntimeError("%ls %ls operation: axis parameter %d (%d) must be in range 1..rank of input ([%s]).", NodeName().c_str(), OperationName().c_str(), i, m_axis[i], string(sampleLayout).c_str());
+                }
+                insert_drop.at(0) += 1;
+//                std::cout << __FILE__ << __LINE__ << std::endl;
+            } else {
+//                std::cout << __FILE__ << __LINE__ << std::endl;
+                // negative and zero is special case for insert at the border (I have no idea if front or back)
+                if (m_axis[i] < 1 || (isFinalValidationPass && m_axis[i] > sampleLayout.GetRank()))
+                    RuntimeError("%ls %ls operation: axis parameter %d (%d) must be in range 1..rank of input ([%s]).", NodeName().c_str(), OperationName().c_str(), i, m_axis[i], string(sampleLayout).c_str());
 
-            // propagate as much as we can
-            if (isFinalValidationPass || (m_axis[i] - 1 < sampleLayout.GetRank() && 0 <= BeginIndex(i) && BeginIndex(i) <= EndIndex(i) && EndIndex(i) <= sampleLayout[m_axis[i] - 1])) // (the second condition guards against failing an out-of-bounds error if not isFinalValidationPass)
-                sampleLayout.NarrowTo(m_axis[i] - 1, BeginIndex(i), EndIndex(i));
+//                std::cout << __FILE__ << __LINE__ << std::endl;
+                if (isFinalValidationPass && (sampleLayout[m_axis[i] - 1] < currEndIndex || currEndIndex < currBeginIndex || currBeginIndex < 0))
+                    // ToDo: replace 42 with sentinel for insert/drop index
+                    if (currBeginIndex != 42 && currEndIndex != 42)
+                        RuntimeError("%ls %ls operation: Index range [%d,%d), interpreted as [%d,%d), is invalid for input ([%s]).", NodeName().c_str(), OperationName().c_str(), m_beginIndex[i], m_endIndex[i], (int)BeginIndex(i), (int)EndIndex(i), string(sampleLayout).c_str());
+//                std::cout << __FILE__ << __LINE__ << std::endl;
+                if (currBeginIndex == 42){
+                    // insert
+                    drop_insert_axis.push_back(std::make_tuple(m_axis[i], true));
+                    insert_drop.at(m_axis[i]) += 1;
+                } else if (currEndIndex == 42){
+                    // slice folloed from drop
+                    drop_insert_axis.push_back(std::make_tuple(m_axis[i] - 1, false));
+                    currEndIndex = currBeginIndex + 1;
+                    insert_drop.at(m_axis[i] - 1) -= 1;
+                }
+//                std::cout << __FILE__ << __LINE__ << std::endl;
+                if (currBeginIndex != 42){
+                    // propagate as much as we can
+                    if (isFinalValidationPass ||
+                        (m_axis[i] - 1 < sampleLayout.GetRank() && 0 <= currBeginIndex && currBeginIndex <= currEndIndex &&
+                         currEndIndex <= sampleLayout[m_axis[i] -
+                                                      1])) // (the second condition guards against failing an out-of-bounds error if not isFinalValidationPass)
+                        sampleLayout.NarrowTo(m_axis[i] - 1, currBeginIndex, currEndIndex);
+                }
+//                std::cout << __FILE__ << __LINE__ << std::endl;
+            }
         }
+
+//        std::cout << __FILE__ << __LINE__ << std::endl;
+        for(int ax_idx = insert_drop.size()-1; ax_idx >= 0; ax_idx--) {  // Note: int is nessesary -1 => break
+//            std::cout << "Debug Slice ax_idx: " << ax_idx << std::endl;
+//            std::cout << "Debug Slice insert_drop.at(ax_idx): " << insert_drop.at(ax_idx) << std::endl;
+            if (insert_drop.at(ax_idx) > 0){
+//                std::cout << "Debug Slice insert_drop: insert " << insert_drop[ax_idx] << std::endl;
+                for (int notImportant = 0; notImportant < insert_drop[ax_idx]; notImportant++){
+                    sampleLayout.InsertInPlace(ax_idx, 1);
+                }
+            } else if (insert_drop.at(ax_idx) < 0){
+//                std::cout << "Debug Slice insert_drop: drop " << insert_drop[ax_idx] << std::endl;
+                // ToDo: add a assert *it == 1
+                sampleLayout.DropDimInPlace(ax_idx);
+            } /*else { pass } */
+        }
+
+//        std::sort(begin(drop_insert_axis), end(drop_insert_axis), TupleCompare<0>());  // inplace
+//        std::cout << "ReshapingNode Debug Slice drop_insert_axis: " << std::endl;
+//        for (auto e : drop_insert_axis){
+//            std::cout << std::get<0>(e) << " " << std::get<1>(e) << std::endl;
+//        }
+//
+//        for(auto it = drop_insert_axis.rbegin(); it != drop_insert_axis.rend(); ++it) {
+//            // reverse iteration
+//            // https://stackoverflow.com/a/276053/5766934
+//            auto axis = std::get<0>(*it);
+//            bool insert_True_drop_False = std::get<1>(*it);
+//
+//            if (insert_True_drop_False){
+//                std::cout << "ReshapingNode Debug Slice AppendInPlace: " << axis << std::endl;
+//                sampleLayout.InsertInPlace(axis, 1);
+//            } else {
+//                std::cout << "ReshapingNode Debug Slice DropDimsInPlace: " << axis << std::endl;
+//                sampleLayout.DropDimInPlace(axis);
+//            }
+//        }
+//        std::cout << "ReshapingNode Debug sampleLayout " << sampleLayout.repr() << std::endl;
+
         SetDims(TensorShape(sampleLayout.GetDims()), HasMBLayout());
+//        std::cout << "ReshapingNode Debug sampleLayout end" << std::endl;
+//        std::cout << __FILE__ << __LINE__ << std::endl;
     }
 
 private:
