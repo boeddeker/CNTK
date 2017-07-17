@@ -405,13 +405,13 @@ class ProgressPrinter(cntk_py.ProgressWriter):
         if aggregate_metric is not None:
             avg_metric = _avg(aggregate_metric, samples)
             if self.metric_is_pct:
-                fmt_str = "Finished Epoch[{}{}]: {}loss = {:0.6f} * {}, metric = {:0.2f}% * {} {:0.3f}s ({:5.1f} samples/s);"
+                fmt_str = "Train [{}{}]: {}loss = {:.6g} * {}, metric = {:.2g}% * {} {:0.3f}s ({:5.1f} samples/s);"
             else:
-                fmt_str = "Finished Epoch[{}{}]: {}loss = {:0.6f} * {}, metric = {:0.6f} * {} {:0.3f}s ({:5.1f} samples/s);"
+                fmt_str = "Train [{}{}]: {}loss = {:.6g} * {}, metric = {:.6g} * {} {:0.3f}s ({:5.1f} samples/s);"
             msg = fmt_str.format(summaries, of_epochs, self.tag, avg_loss, samples, avg_metric * self.metric_multiplier,
                     samples, elapsed_seconds, speed)
         else:
-            msg = "Finished Epoch[{}{}]: {}loss = {:0.6f} * {} {:0.3f}s ({:5.1f} samples/s);".format(
+            msg = "Train [{}{}]: {}loss = {:.6g} * {} {:0.3f}s ({:5.1f} samples/s);".format(
                 summaries, of_epochs, self.tag, avg_loss, samples, elapsed_seconds, speed)
 
         self.___logprint(msg)
@@ -419,9 +419,9 @@ class ProgressPrinter(cntk_py.ProgressWriter):
     def on_write_test_summary(self, samples, updates, summaries, aggregate_metric, elapsed_milliseconds):
         # Override for ProgressWriter.on_write_test_summary.
         if self.metric_is_pct:
-            fmt_str = "Finished Evaluation [{}]: Minibatch[1-{}]: metric = {:0.2f}% * {};"
+            fmt_str = "Test [{}]: Minibatch[1-{}]: metric = {:0.2g}% * {};"
         else:
-            fmt_str = "Finished Evaluation [{}]: Minibatch[1-{}]: metric = {:0.6f} * {};"
+            fmt_str = "Test [{}]: Minibatch[1-{}]: metric = {:.6g} * {};"
         self.___logprint(fmt_str.format(summaries, updates,
                             _avg(aggregate_metric, samples) * self.metric_multiplier, samples))
 
