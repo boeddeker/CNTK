@@ -54,7 +54,7 @@ def Delay(T=1, initial_state=default_override_or(0), name=''):
     initial_state = _get_initial_state_or_default(initial_state)
 
     # expression
-    @BlockFunction('Delay', name)
+    @BlockFunction('Delay T={}'.format(T), name)
     def delay(x):
         # TODO: reenable this
         ## if specific dynamic_axes requested then delay without and inject a reconcile_dynamic_axes() on top
@@ -415,7 +415,7 @@ def Recurrence(step_function, go_backwards=default_override_or(False), initial_s
     @Function
     def recurrence(x):
         return recurrence_from(*(initial_state + (x,)))
-    return _inject_name(recurrence, name)
+    return recurrence
 
 
 def Fold(folder_function, go_backwards=default_override_or(False), initial_state=default_override_or(0), return_full_state=False, name=''):
