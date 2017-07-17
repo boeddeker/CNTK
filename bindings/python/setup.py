@@ -33,7 +33,8 @@ if IS_WINDOWS:
               "  set DISTUTILS_USE_SDK=1\n")
         sys.exit(1)
 
-CNTK_PATH = os.path.join(os.path.dirname(__file__), "..", "..")
+#CNTK_PATH = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
+CNTK_PATH = os.environ['CNTK_ROOT']
 CNTK_SOURCE_PATH = os.path.join(CNTK_PATH, "Source")
 PROJ_LIB_PATH = os.path.join(os.path.dirname(__file__), "cntk", "libs")
 
@@ -44,8 +45,28 @@ else:
     if IS_WINDOWS:
         CNTK_LIB_PATH = os.path.join(CNTK_PATH, "x64", "Release")
     else:
-        CNTK_LIB_PATH = os.path.join(
-            CNTK_PATH, "build", "gpu", "release", "lib")
+        tmp = glob(os.path.join(
+            CNTK_PATH, "build", "**", "lib"))
+        try:
+            CNTK_LIB_PATH, = tmp
+        except Exception as e:
+            print('Options')
+            for i, o in enumerate(tmp):
+                print(f'    {i}) {o}')
+            print('Select build folder')
+            try:
+                i = int(input())
+                CNTK_LIB_PATH = [i]
+            except Exception as e:
+            
+                msg = f"Glob res: {tmp}, CNTK_PATH: {CNTK_PATH}"
+                print(msg)
+                if len(e.args) == 1:
+                    e.args + (e.args[0] + "\n\n" + msg)
+                raise
+
+        #CNTK_LIB_PATH = os.path.join(
+        #    CNTK_PATH, "build", "gpu", "release", "lib")
 
 print("Using CNTK sources at '%s'" % os.path.abspath(CNTK_SOURCE_PATH))
 print("Using CNTK libs at '%s'" % os.path.abspath(CNTK_LIB_PATH))
@@ -71,7 +92,19 @@ if IS_WINDOWS:
     cntkLibraryName = "Cntk.Core-" + os.environ['CNTK_COMPONENT_VERSION']
     link_libs = [cntkLibraryName]
 else:
-    cntkLibraryName = "Cntk.Core-" + os.environ['CNTK_COMPONENT_VERSION']
+    try:
+        cntkLibraryName = "Cntk.Core-" + os.environ['CNTK_COMPONENT_VERSION']
+    except KeyError:
+        try:
+            cntkLibraryName = glob(os.path.join(CNTK_LIB_PATH, "libCntk.Core-*.so"))
+            cntkLibraryName, = cntkLibraryName # assume one match
+            cntkLibraryName = os.path.basename(os.path.splitext(cntkLibraryName)[0])[len("lib"):]
+        except Exception as e:
+            msg = f"CNTK_LIB_PATH: {CNTK_LIB_PATH}, cntkLibraryName: {cntkLibraryName}"
+            print(msg)
+            if len(e.args == 1):
+                e.args + (e.args[0] + "\n\n" + msg)
+            raise
     link_libs = [cntkLibraryName]
     libname_rt_ext = '.so'
 
