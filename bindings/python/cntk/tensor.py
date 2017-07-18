@@ -139,6 +139,17 @@ class TensorOpsMixin(object):
         tuple of non consecutive idx -> one slice per consecutive part and a splice
     
         """
+
+        if hasattr(self, 'outputs') and len(self.outputs) > 1:
+            try:
+                return self.outputs[arg]
+            except Exception as e:
+                msg = 'Slice for multioutput functions is not supported, ' \
+                      'the fallback to select to output requires ' \
+                      'that only one index is provided. arg: {}, self: {}'.format(
+                    arg, self)
+                raise KeyError(msg) from e
+
         # ToDo: shape check for int and tuple
         if not isinstance(arg, tuple):
             arg = (arg,)
